@@ -1,9 +1,25 @@
 import { useState, useRef } from "react";
 import { ArrowLeft, AlertTriangle, Plus, Clock, Keyboard } from "lucide-react";
+import { z } from "zod";
+import { toast as sonnerToast } from "sonner";
 import type { Article } from "@/types/article";
 import { useWritingMetrics, formatTime } from "@/hooks/useWritingMetrics";
 import type { WritingMetadata } from "@/lib/database.types";
 import ThumbnailUpload from "@/components/ThumbnailUpload";
+
+const storySchema = z.object({
+  title: z.string().min(5, "Title must be at least 5 characters"),
+  summary: z.string().min(1, "Summary is required"),
+  category: z.enum(["good", "bad", "ugly"], { required_error: "Category is required" }),
+  chapterTitle: z.string().min(1, "Chapter title is required"),
+  chapterSummary: z.string().min(1, "Chapter summary is required"),
+  chapterContent: z.string().refine(
+    (val) => val.trim().split(/\s+/).filter((w) => w.length > 0).length >= 50,
+    "Content must be at least 50 words"
+  ),
+});
+
+type StoryFormErrors = Partial<Record<keyof z.infer<typeof storySchema>, string>>;
 
 interface EditorViewProps {
   onBack: () => void;
@@ -24,19 +40,21 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
   const [thumbnail, setThumbnail] = useState<string | undefined>(undefined);
   const [fastCount, setFastCount] = useState(0);
   const [cooldown, setCooldown] = useState(false);
-  const [toast, setToast] = useState("");
+  const [errors, setErrors] = useState<StoryFormErrors>({});
   const lastCharTime = useRef(Date.now());
 
   // Writing metrics tracking
   const { metrics, handleKeyDown, handlePaste: trackPaste, stopTracking, resetMetrics } = useWritingMetrics();
 
+  const wordCount = chapterContent.trim().split(/\s+/).filter((w) => w.length > 0).length;
   const sentenceCount = chapterContent.split(/[.!?]+/).filter((s) => s.trim().length > 0).length;
 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
     trackPaste(e); // Track paste attempt in metrics
-    setToast("⚠️ PASTE DISABLED: Write line-by-line.");
-    setTimeout(() => setToast(""), 3000);
+    sonnerToast.error("PASTE DISABLED — Write line-by-line.", {
+      style: { border: '2px solid black', fontFamily: 'Inter, sans-serif' },
+    });
   };
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -50,10 +68,9 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
       if (next >= 3) {
         setCooldown(true);
         setFastCount(0);
-        setToast("You are typing entirely too fast. Are you a robot?");
+        sonnerToast.warning("You are typing entirely too fast. Are you a robot?");
         setTimeout(() => {
           setCooldown(false);
-          setToast("");
         }, 2000);
         return;
       }
@@ -62,16 +79,55 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
     }
 
     setChapterContent(e.target.value);
+    // Clear content error on type
+    if (errors.chapterContent) {
+      setErrors((prev) => ({ ...prev, chapterContent: undefined }));
+    }
+  };
+
+  const validate = (): boolean => {
+    if (mode === "add") {
+      // Simple validation for add chapter mode
+      if (!selectedStoryId || !chapterTitle.trim() || !chapterSummary.trim() || !chapterContent.trim()) {
+        return false;
+      }
+      return true;
+    }
+
+    const result = storySchema.safeParse({
+      title: title.trim(),
+      summary: summary.trim(),
+      category,
+      chapterTitle: chapterTitle.trim(),
+      chapterSummary: chapterSummary.trim(),
+      chapterContent: chapterContent.trim(),
+    });
+
+    if (!result.success) {
+      const fieldErrors: StoryFormErrors = {};
+      for (const issue of result.error.issues) {
+        const field = issue.path[0] as keyof StoryFormErrors;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      setErrors(fieldErrors);
+      return false;
+    }
+
+    setErrors({});
+    return true;
   };
 
   const handleSubmit = () => {
+    if (!validate()) return;
+
     const finalMetrics = stopTracking();
 
     if (mode === "new") {
-      if (!title.trim() || !summary.trim() || !chapterTitle.trim() || !chapterSummary.trim() || !chapterContent.trim()) return;
       onPublish(title.trim(), summary.trim(), category, chapterTitle.trim(), chapterSummary.trim(), chapterContent.trim(), finalMetrics, thumbnail);
     } else {
-      if (!selectedStoryId || !chapterTitle.trim() || !chapterSummary.trim() || !chapterContent.trim()) return;
+      if (!selectedStoryId) return;
       onAddChapter(selectedStoryId, chapterTitle.trim(), chapterSummary.trim(), chapterContent.trim(), finalMetrics);
     }
     resetForm();
@@ -85,7 +141,14 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
     setChapterContent("");
     setSelectedStoryId(null);
     setThumbnail(undefined);
+    setErrors({});
     resetMetrics();
+  };
+
+  const clearFieldError = (field: keyof StoryFormErrors) => {
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
   };
 
   const ongoingStories = existingStories.filter((s) => s.status === "ongoing");
@@ -101,12 +164,6 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
               Cooling off for 2 seconds...
             </p>
           </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 font-ui text-sm bg-foreground text-background px-5 py-3 shadow-lg">
-          {toast}
         </div>
       )}
 
@@ -161,23 +218,29 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
             </div>
           </div>
 
-          <input
-            type="text"
-            placeholder="Story Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onPaste={handlePaste}
-            className="w-full font-brand text-3xl bg-transparent border-none outline-none placeholder:text-muted-foreground/40 mb-4 text-foreground"
-          />
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Story Title"
+              value={title}
+              onChange={(e) => { setTitle(e.target.value); clearFieldError("title"); }}
+              onPaste={handlePaste}
+              className={`w-full font-brand text-3xl bg-transparent border-none outline-none placeholder:text-muted-foreground/40 text-foreground ${errors.title ? 'border-b-2 border-red-500' : ''}`}
+            />
+            {errors.title && <p className="font-ui text-xs text-red-600 mt-1">{errors.title}</p>}
+          </div>
 
-          <input
-            type="text"
-            placeholder="Brief summary of this story..."
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            onPaste={handlePaste}
-            className="w-full font-body text-base bg-transparent border-b border-border pb-4 outline-none placeholder:text-muted-foreground/40 mb-6 text-foreground"
-          />
+          <div className="mb-6">
+            <input
+              type="text"
+              placeholder="Brief summary of this story..."
+              value={summary}
+              onChange={(e) => { setSummary(e.target.value); clearFieldError("summary"); }}
+              onPaste={handlePaste}
+              className={`w-full font-body text-base bg-transparent border-b pb-4 outline-none placeholder:text-muted-foreground/40 text-foreground ${errors.summary ? 'border-red-500' : 'border-border'}`}
+            />
+            {errors.summary && <p className="font-ui text-xs text-red-600 mt-1">{errors.summary}</p>}
+          </div>
 
           <ThumbnailUpload value={thumbnail} onChange={setThumbnail} />
         </>
@@ -218,33 +281,42 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
           </span>
         </div>
 
-        <input
-          type="text"
-          placeholder="Chapter Title (e.g., 'The Rumor')"
-          value={chapterTitle}
-          onChange={(e) => setChapterTitle(e.target.value)}
-          onPaste={handlePaste}
-          className="w-full font-display text-xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground/40 mb-3 text-foreground"
-        />
+        <div className="mb-3">
+          <input
+            type="text"
+            placeholder="Chapter Title (e.g., 'The Rumor')"
+            value={chapterTitle}
+            onChange={(e) => { setChapterTitle(e.target.value); clearFieldError("chapterTitle"); }}
+            onPaste={handlePaste}
+            className="w-full font-display text-xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground/40 text-foreground"
+          />
+          {errors.chapterTitle && <p className="font-ui text-xs text-red-600 mt-1">{errors.chapterTitle}</p>}
+        </div>
 
-        <input
-          type="text"
-          placeholder="Chapter summary (one line preview)..."
-          value={chapterSummary}
-          onChange={(e) => setChapterSummary(e.target.value)}
-          onPaste={handlePaste}
-          className="w-full font-body text-sm bg-transparent border-b border-border pb-3 outline-none placeholder:text-muted-foreground/40 mb-4 text-muted-foreground"
-        />
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="Chapter summary (one line preview)..."
+            value={chapterSummary}
+            onChange={(e) => { setChapterSummary(e.target.value); clearFieldError("chapterSummary"); }}
+            onPaste={handlePaste}
+            className={`w-full font-body text-sm bg-transparent border-b pb-3 outline-none placeholder:text-muted-foreground/40 text-muted-foreground ${errors.chapterSummary ? 'border-red-500' : 'border-border'}`}
+          />
+          {errors.chapterSummary && <p className="font-ui text-xs text-red-600 mt-1">{errors.chapterSummary}</p>}
+        </div>
 
-        <textarea
-          placeholder="Write the full chapter content..."
-          value={chapterContent}
-          onChange={handleContentChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          rows={8}
-          className="w-full font-body text-base bg-transparent border border-border p-4 outline-none resize-none placeholder:text-muted-foreground/40 focus:border-foreground transition-colors text-foreground"
-        />
+        <div>
+          <textarea
+            placeholder="Write the full chapter content..."
+            value={chapterContent}
+            onChange={handleContentChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            rows={8}
+            className={`w-full font-body text-base bg-transparent border p-4 outline-none resize-none placeholder:text-muted-foreground/40 focus:border-foreground transition-colors text-foreground ${errors.chapterContent ? 'border-red-500' : 'border-border'}`}
+          />
+          {errors.chapterContent && <p className="font-ui text-xs text-red-600 mt-1">{errors.chapterContent}</p>}
+        </div>
 
         {/* Live Writing Metrics */}
         {metrics.time_spent_seconds > 0 && (
@@ -257,6 +329,9 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
               <Keyboard size={12} />
               {metrics.total_keystrokes || 0} keys
             </span>
+            <span>
+              {wordCount} word{wordCount !== 1 ? 's' : ''}
+            </span>
             {metrics.paste_attempts > 0 && (
               <span className="text-orange-500">
                 {metrics.paste_attempts} paste attempt{metrics.paste_attempts !== 1 ? 's' : ''}
@@ -267,14 +342,14 @@ const EditorView = ({ onBack, onPublish, existingStories, onAddChapter }: Editor
 
         <div className="flex items-center justify-between mt-4">
           <span className="font-ui text-xs text-muted-foreground">
-            {sentenceCount} sentence{sentenceCount !== 1 ? "s" : ""}
+            {sentenceCount} sentence{sentenceCount !== 1 ? "s" : ""} · {wordCount} word{wordCount !== 1 ? "s" : ""}
           </span>
           <button
             onClick={handleSubmit}
             disabled={
               mode === "new"
-                ? !title.trim() || !summary.trim() || !chapterTitle.trim() || !chapterSummary.trim() || !chapterContent.trim()
-                : !selectedStoryId || !chapterTitle.trim() || !chapterSummary.trim() || !chapterContent.trim()
+                ? !title.trim() || !chapterContent.trim()
+                : !selectedStoryId || !chapterContent.trim()
             }
             className="font-ui text-sm px-6 py-2.5 bg-foreground text-background hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
           >

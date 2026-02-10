@@ -11,6 +11,7 @@ import Principles from "./pages/Principles";
 import Admin from "./pages/Admin";
 import Story from "./pages/Story";
 import ResetPassword from "./pages/ResetPassword";
+import MyStories from "./pages/MyStories";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
               <Route path="/admin" element={<Admin />} />
               <Route path="/story/:id" element={<Story />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/my-stories" element={<MyStories />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

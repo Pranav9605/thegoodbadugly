@@ -300,3 +300,101 @@ npx tsc --noEmit
 2. **RLS tester**: Test `INSERT` on stories as authenticated → should succeed
 3. **SQL Editor**: Insert a test story with `status = 'draft'` → confirm it does NOT appear in anon select
 4. **SQL Editor**: Insert a test story with `status = 'live', publish_at = NOW()` → confirm it DOES appear
+
+---
+
+# Phase 2: Writer Flow + Category Labels
+
+Rewrite the `/write` page with proper form validation, wire to real database, create `/my-stories` page with status badges and category labels.
+
+> [!IMPORTANT]
+> `react-hook-form` (^7.61.1) and `zod` (^3.25.76) are already installed. The existing `EditorView` component has anti-paste and writing metrics — we'll preserve its approach.
+
+---
+
+## Proposed Changes
+
+### 1. Rewrite `/write` Page
+
+#### [MODIFY] [Write.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/pages/Write.tsx)
+- Replace mock `handlePublish` with real `createStory()` call
+- Import `useAuth` for `user.id` as `author_id`
+- On submit → `status='pending'`, toast "Story submitted for review", redirect `/my-stories`
+- Keep existing `EditorView` component (it already handles anti-paste + metrics)
+
+#### [MODIFY] [EditorView.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/components/EditorView.tsx)
+- Add Zod validation schema:
+  - `title`: min 5 characters
+  - `content`: min 50 words
+  - `category`: required, one of `good | bad | ugly`
+  - `evidenceUrl`: optional but valid URL if provided
+- Show inline validation errors below each field
+- Replace internal toast with Sonner toast for paste blocking
+- Keep existing anti-paste (`e.preventDefault()`) + writing metrics tracking
+
+---
+
+### 2. Create `/my-stories` Page
+
+#### [NEW] [MyStories.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/pages/MyStories.tsx)
+- Auth guard: redirect to `/` if not logged in
+- TanStack Query: `useQuery(['my-stories', user.id], () => fetchUserStories(user.id))`
+- Loading state: `StoryCardSkeleton` grid
+- Empty state: `EmptyState` component with "Write your first story" CTA
+- Story cards: show title, category label, status badge, created date
+- Click → navigate to `/story/:id`
+
+#### [MODIFY] [App.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/App.tsx)
+- Add `<Route path="/my-stories" element={<MyStories />} />`
+
+#### [MODIFY] [AppHeader.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/components/AppHeader.tsx)
+- Add "My Stories" nav link for authenticated users
+
+---
+
+### 3. Status Badges
+
+#### [NEW] [StatusBadge.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/components/StatusBadge.tsx)
+- Props: `status: StoryStatus`, `publishAt?: string`, `adminNotes?: string`
+- Styling per status:
+
+| Status | Border | Text | Extra |
+|--------|--------|------|-------|
+| `draft` | 2px dashed gray | DRAFT | — |
+| `pending` | 2px solid gray | PENDING | — |
+| `cooling` | 2px solid blue | COOLING | Countdown to `publish_at` |
+| `live` | 2px solid black | LIVE | — |
+| `rejected` | 2px solid red | REJECTED | Expandable `admin_notes` |
+
+---
+
+### 4. Category Labels
+
+#### [NEW] [CategoryLabel.tsx](file:///Users/pranavpadmanabhan/Documents/The%20Good/code-weaver/src/components/CategoryLabel.tsx)
+- Props: `category: 'good' | 'bad' | 'ugly'`
+- Display:
+
+| Category | Label | Subtitle |
+|----------|-------|----------|
+| `good` | GOOD | Hope |
+| `bad` | BAD | Failure |
+| `ugly` | UGLY | Fallout |
+
+- Styling: uppercase, bold, 2px black border, `font-display`
+
+---
+
+## Verification Plan
+
+### Automated
+```bash
+npx tsc --noEmit
+```
+
+### Manual
+1. Submit story → verify it appears in `/my-stories` with `pending` badge + correct category label
+2. Paste in content textarea → verify error toast + paste blocked
+3. Try submitting with title < 5 chars → verify validation error
+4. Try submitting with content < 50 words → verify validation error
+5. Disconnect network → verify skeleton loading + error boundary
+

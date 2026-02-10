@@ -7,7 +7,8 @@ import AuthModal from "@/components/AuthModal";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Article } from "@/types/article";
 import type { WritingMetadata } from "@/lib/database.types";
-import { toast } from "@/hooks/use-toast";
+import { createStory } from "@/services/stories";
+import { toast } from "sonner";
 
 // For now, we use mock data - in production this would come from the database
 const mockOngoingStories: Article[] = [];
@@ -17,22 +18,41 @@ const Write = () => {
   const { user } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const handlePublish = (
+  const handlePublish = async (
     title: string,
     summary: string,
     category: "good" | "bad" | "ugly",
     chapterTitle: string,
     chapterSummary: string,
     chapterContent: string,
-    _writingMetrics?: WritingMetadata,
-    _thumbnailUrl?: string
+    writingMetrics?: WritingMetadata,
+    thumbnailUrl?: string
   ) => {
-    // In production, this would submit to the database with status: 'pending_review'
-    toast({
-      title: "Story Submitted",
-      description: "Your story is now pending review. It will enter a 48-hour cooling period before publication.",
-    });
-    navigate("/");
+    if (!user) return;
+
+    const { error } = await createStory(
+      user.id,
+      title,
+      summary,
+      category,
+      {
+        title: chapterTitle,
+        summary: chapterSummary,
+        content: chapterContent,
+        chapterDate: new Date().toISOString(),
+        writingMetadata: writingMetrics,
+      },
+      thumbnailUrl
+    );
+
+    if (error) {
+      toast.error("Failed to submit story. Please try again.");
+      console.error("[Write] createStory error:", error);
+      return;
+    }
+
+    toast.success("Story submitted for review");
+    navigate("/my-stories");
   };
 
   const handleAddChapter = (
@@ -44,11 +64,8 @@ const Write = () => {
   ) => {
     // In production, this would add a chapter to the database
     console.log("Adding chapter to story", storyId, chapterTitle, chapterSummary, chapterContent);
-    toast({
-      title: "Chapter Added",
-      description: "Your new chapter has been added to the story.",
-    });
-    navigate("/");
+    toast.success("Chapter added to your story");
+    navigate("/my-stories");
   };
 
   // If not logged in, show auth modal

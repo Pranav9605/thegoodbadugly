@@ -73,8 +73,46 @@ Transform the existing Code Weaver MVP into a bullet-proof production app, scala
 
 ---
 
+## Phase 2: Writer Flow + Category Labels (Anti-AI + My Stories)
+
+### 2.1 Rewrite `/write` Page
+- [x] Add Zod schema: title ≥5 chars, content ≥50 words, category required
+- [x] Zod validation inline in EditorView (no react-hook-form needed — existing controlled state works)
+- [x] Wire to real DB via `createStory()` → `status='pending'`
+- [x] Toast: "Story submitted for review" + redirect to `/my-stories`
+- [x] Anti-paste on content textarea (kept existing paste blocking + switched to Sonner toast)
+
+### 2.2 Create `/my-stories` Page
+- [x] New `MyStories.tsx` page component
+- [x] Add route in `App.tsx`
+- [x] TanStack Query: fetch user's stories via `fetchUserStories()`
+- [x] Loading skeleton + empty state
+- [x] Link from navigation/header
+
+### 2.3 Status Badges
+- [x] `StatusBadge.tsx` component with brutalist borders
+  - `pending` → gray border
+  - `cooling` → blue border + countdown timer
+  - `rejected` → red border + admin_notes disclosure
+  - `live` → black border (solid)
+  - `draft` → dashed border
+
+### 2.4 Category Labels
+- [x] `CategoryLabel.tsx` component
+  - GOOD → "Hope" subtitle
+  - BAD → "Failure" subtitle
+  - UGLY → "Fallout" subtitle
+- [x] Bold text, 2px border, used in My Stories + Story cards
+
+### 2.5 Validation
+- [ ] Submit story → appears in My Stories with correct badge + category
+- [x] Paste attempt → error toast (Sonner)
+- [x] `tsc --noEmit` clean ✓
+- [x] No network → skeleton + error boundary
+
+---
+
 ## Future Phases
-- Phase 2: TBD
 - Phase 3: TBD
 
 ---
@@ -86,4 +124,4 @@ Transform the existing Code Weaver MVP into a bullet-proof production app, scala
 | 2026-02-09 | 0 | Implemented: logout, forgot password, 404, error boundary, skeletons, empty states, toast styling |
 | 2026-02-09 | 0 | FIX: Auth reliability - logout race condition, password reset redirect, ResetPassword page |
 | 2026-02-10 | 1 | Added Phase 1: Database & Types plan |
-
+| 2026-02-10 | 2 | Added Phase 2: Writer Flow + Category Labels plan |
